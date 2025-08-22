@@ -241,9 +241,9 @@ interface Result {
 }
 
 const App: React.FC = () => {
-  const [handInput, setHandInput] = useState<string>('J6');
+  const [handInput, setHandInput] = useState<string>('JT');
   const [isUnsuited, setIsUnsuited] = useState<boolean>(true);
-  const [board, setBoard] = useState<string[]>(['', '', '', '', '']);
+  const [board, setBoard] = useState<string[]>(['J', 'J', 'J', '', '']);
   const [boardSuited, setBoardSuited] = useState<boolean[]>([false, false, false, false, false]);
   const [players, setPlayers] = useState<number>(6);
   const [result, setResult] = useState<Result | null>(null);
@@ -276,6 +276,7 @@ const App: React.FC = () => {
     const holeSuits = isUnsuited ? ['S', 'H'] : ['S', 'S'];
     const yourCards = [handRanks[0] + holeSuits[0], handRanks[1] + holeSuits[1]];
     const boardCardsStr: string[] = [];
+    const usedCards: Set<string> = new Set();
     for (let i = 0; i < board.length; i++) {
       const card = parseCard(board[i]);
       if (!card) continue;
@@ -283,17 +284,26 @@ const App: React.FC = () => {
       if (finalSuit === null) {
         finalSuit = boardSuited[i] ? handSuit : defaultSuit;
       }
-      boardCardsStr.push(card.rank + finalSuit);
+      const cardStr = card.rank + finalSuit;
+      if (usedCards.has(cardStr)) {
+        setError(`Duplicate card found: ${cardStr}`);
+        return;
+      }
+      usedCards.add(cardStr);
+      boardCardsStr.push(cardStr);
     }
     const allKnown = [...yourCards, ...boardCardsStr];
-    if (new Set(allKnown).size !== allKnown.length) { setError('Duplicate cards found.'); return; }
+    if (new Set(allKnown).size !== allKnown.length) {
+      setError('Duplicate cards found in hand or board.');
+      return;
+    }
     let deck: string[] = [];
     for (let r of RANKS) {
       for (let s of SUITS) {
-        deck.push(r + s);
+        const card = r + s;
+        if (!usedCards.has(card)) deck.push(card);
       }
     }
-    deck = deck.filter(c => !allKnown.includes(c));
     const numOpps = players - 1;
     const numSim = 10000; // Increased for better accuracy
     let wins = 0, ties = 0, total = 0;
