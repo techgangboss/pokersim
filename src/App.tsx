@@ -81,6 +81,11 @@ interface HandDetails {
 
 const getHandDetails = (hand: string): HandDetails => {
   const cards = hand.split(' ');
+  if (cards.length < 5) {
+    // Preflop or incomplete board: return high card rank
+    const faceValues = cards.map(a => RANK_VALUES[a[0]]).sort((a, b) => b - a);
+    return { rank: 9, tiebreaker: faceValues }; // High card
+  }
   const faceValues = cards.map(a => RANK_VALUES[a[0]]);
   const suits = cards.map(a => a[1]);
   const flush = suits.every(s => s === suits[0]);
@@ -156,6 +161,11 @@ const isBetter = (d1: HandDetails, d2: HandDetails): boolean => {
 };
 
 const getBestHand = (cards: string[]): HandDetails => {
+  if (cards.length < 5) {
+    // Preflop: return high card rank
+    const faceValues = cards.map(c => RANK_VALUES[c[0]]).sort((a, b) => b - a);
+    return { rank: 9, tiebreaker: faceValues }; // High card
+  }
   const combos = getCombinations(5, cards.length);
   let best: HandDetails | null = null;
   for (let comb of combos) {
@@ -194,13 +204,13 @@ interface CommunityCardInputProps {
 }
 
 const CommunityCardInput: React.FC<CommunityCardInputProps> = ({ id, cardValue, onCardChange, isSuited, onSuitChange, placeholder, suitCheckboxDisabled }) => (
-    <div className="bg-gray-700/50 p-3 rounded-lg flex-1">
-        <TextInput id={id} value={cardValue} onChange={onCardChange} title="" placeholder={placeholder} />
-        <div className="mt-2 flex items-center">
-            <input id={`${id}-suited`} type="checkbox" checked={!suitCheckboxDisabled && isSuited} onChange={onSuitChange} disabled={suitCheckboxDisabled} className="h-4 w-4 rounded border-gray-500 bg-gray-600 text-indigo-600 focus:ring-indigo-500 disabled:opacity-50"/>
-            <label htmlFor={`${id}-suited`} className={`ml-2 block text-sm ${suitCheckboxDisabled ? 'text-gray-500' : 'text-gray-300'}`}>Suited with hand</label>
-        </div>
+  <div className="bg-gray-700/50 p-3 rounded-lg flex-1">
+    <TextInput id={id} value={cardValue} onChange={onCardChange} title="" placeholder={placeholder} />
+    <div className="mt-2 flex items-center">
+      <input id={`${id}-suited`} type="checkbox" checked={!suitCheckboxDisabled && isSuited} onChange={onSuitChange} disabled={suitCheckboxDisabled} className="h-4 w-4 rounded border-gray-500 bg-gray-600 text-indigo-600 focus:ring-indigo-500 disabled:opacity-50"/>
+      <label htmlFor={`${id}-suited`} className={`ml-2 block text-sm ${suitCheckboxDisabled ? 'text-gray-500' : 'text-gray-300'}`}>Suited with hand</label>
     </div>
+  </div>
 );
 
 interface CardVisualizationProps {
@@ -231,9 +241,9 @@ interface Result {
 }
 
 const App: React.FC = () => {
-  const [handInput, setHandInput] = useState<string>('AJ');
+  const [handInput, setHandInput] = useState<string>('J6');
   const [isUnsuited, setIsUnsuited] = useState<boolean>(true);
-  const [board, setBoard] = useState<string[]>(['KH', 'QC', '10S', '', '']);
+  const [board, setBoard] = useState<string[]>(['', '', '', '', '']);
   const [boardSuited, setBoardSuited] = useState<boolean[]>([false, false, false, false, false]);
   const [players, setPlayers] = useState<number>(6);
   const [result, setResult] = useState<Result | null>(null);
@@ -285,15 +295,17 @@ const App: React.FC = () => {
     }
     deck = deck.filter(c => !allKnown.includes(c));
     const numOpps = players - 1;
-    const numSim = 1000;
+    const numSim = 10000; // Increased for better accuracy
     let wins = 0, ties = 0, total = 0;
     while (total < numSim) {
       let remaining = shuffle([...deck]);
       let oppHands: string[][] = [];
       for (let op = 0; op < numOpps; op++) {
+        if (remaining.length < 2) break; // Ensure enough cards for opponent hands
         oppHands.push([remaining.shift()!, remaining.shift()!]);
       }
-      let toDeal = 5 - boardCardsStr.length;
+      let toDeal = Math.max(0, 5 - boardCardsStr.length);
+      if (remaining.length < toDeal) continue; // Skip if not enough cards for board
       let extraBoard = remaining.splice(0, toDeal);
       let fullBoard = [...boardCardsStr, ...extraBoard];
       let yourBest = getBestHand([...yourCards, ...fullBoard]);
@@ -314,15 +326,17 @@ const App: React.FC = () => {
       }
       total++;
     }
-    const winProb = (wins / total * 100).toFixed(1);
-    const tieProb = (ties / total * 100).toFixed(1);
-    const equity = wins / total * 100 + ties / total * 100 / 2;
-    const currentBest = getBestHand([...yourCards, ...boardCardsStr]);
-    const explanation = `You have ${HAND_NAMES[currentBest.rank - 1]}.`;
+    const winProb = total > 0 ? (wins / total * 100).toFixed(1) : '0.0';
+    const tieProb = total > 0 ? (ties / total * 100).toFixed(1) : '0.0';
+    const equity = total > 0 ? wins / total * 100 + ties / total * 100 / 2 : 0;
+    const currentCards = [...yourCards, ...boardCardsStr];
+    const currentBest = getBestHand(currentCards);
+    const explanation = currentCards.length < 5 ? `You have ${handRanks.join('')} high.` : `You have ${HAND_NAMES[currentBest.rank - 1]}.`;
+    console.log({ currentCards, currentBest, explanation }); // Debug log
     let recommendation = ''; let recommendationColor = '';
-    if (equity > 75) { recommendation = 'Strong Raise'; recommendationColor = 'bg-green-500'; } 
-    else if (equity > 50) { recommendation = 'Call / Raise'; recommendationColor = 'bg-blue-500'; } 
-    else if (equity > 20) { recommendation = 'Check / Call'; recommendationColor = 'bg-yellow-500'; } 
+    if (equity > 75) { recommendation = 'Strong Raise'; recommendationColor = 'bg-green-500'; }
+    else if (equity > 50) { recommendation = 'Call / Raise'; recommendationColor = 'bg-blue-500'; }
+    else if (equity > 20) { recommendation = 'Check / Call'; recommendationColor = 'bg-yellow-500'; }
     else { recommendation = 'Fold'; recommendationColor = 'bg-red-500'; }
     setResult({
       win: winProb,
@@ -353,16 +367,16 @@ const App: React.FC = () => {
             <div>
               <h2 className="text-xl font-semibold mb-3 text-indigo-300">Community Cards (Optional)</h2>
               <div className="space-y-4">
-                  <div className="flex flex-col sm:flex-row gap-4">
-                      <CommunityCardInput id="flop1" placeholder="Flop 1" cardValue={board[0]} onCardChange={(e) => handleBoardChange(0, e.target.value)} isSuited={boardSuited[0]} onSuitChange={() => handleBoardSuitChange(0)} suitCheckboxDisabled={isUnsuited} />
-                      <CommunityCardInput id="flop2" placeholder="Flop 2" cardValue={board[1]} onCardChange={(e) => handleBoardChange(1, e.target.value)} isSuited={boardSuited[1]} onSuitChange={() => handleBoardSuitChange(1)} suitCheckboxDisabled={isUnsuited} />
-                      <CommunityCardInput id="flop3" placeholder="Flop 3" cardValue={board[2]} onCardChange={(e) => handleBoardChange(2, e.target.value)} isSuited={boardSuited[2]} onSuitChange={() => handleBoardSuitChange(2)} suitCheckboxDisabled={isUnsuited} />
-                  </div>
-                  <div className="flex flex-col sm:flex-row gap-4">
-                      <CommunityCardInput id="turn" placeholder="Turn" cardValue={board[3]} onCardChange={(e) => handleBoardChange(3, e.target.value)} isSuited={boardSuited[3]} onSuitChange={() => handleBoardSuitChange(3)} suitCheckboxDisabled={isUnsuited} />
-                      <CommunityCardInput id="river" placeholder="River" cardValue={board[4]} onCardChange={(e) => handleBoardChange(4, e.target.value)} isSuited={boardSuited[4]} onSuitChange={() => handleBoardSuitChange(4)} suitCheckboxDisabled={isUnsuited} />
-                      <div className="flex-1 hidden sm:block"></div>
-                  </div>
+                <div className="flex flex-col sm:flex-row gap-4">
+                  <CommunityCardInput id="flop1" placeholder="Flop 1" cardValue={board[0]} onCardChange={(e) => handleBoardChange(0, e.target.value)} isSuited={boardSuited[0]} onSuitChange={() => handleBoardSuitChange(0)} suitCheckboxDisabled={isUnsuited} />
+                  <CommunityCardInput id="flop2" placeholder="Flop 2" cardValue={board[1]} onCardChange={(e) => handleBoardChange(1, e.target.value)} isSuited={boardSuited[1]} onSuitChange={() => handleBoardSuitChange(1)} suitCheckboxDisabled={isUnsuited} />
+                  <CommunityCardInput id="flop3" placeholder="Flop 3" cardValue={board[2]} onCardChange={(e) => handleBoardChange(2, e.target.value)} isSuited={boardSuited[2]} onSuitChange={() => handleBoardSuitChange(2)} suitCheckboxDisabled={isUnsuited} />
+                </div>
+                <div className="flex flex-col sm:flex-row gap-4">
+                  <CommunityCardInput id="turn" placeholder="Turn" cardValue={board[3]} onCardChange={(e) => handleBoardChange(3, e.target.value)} isSuited={boardSuited[3]} onSuitChange={() => handleBoardSuitChange(3)} suitCheckboxDisabled={isUnsuited} />
+                  <CommunityCardInput id="river" placeholder="River" cardValue={board[4]} onCardChange={(e) => handleBoardChange(4, e.target.value)} isSuited={boardSuited[4]} onSuitChange={() => handleBoardSuitChange(4)} suitCheckboxDisabled={isUnsuited} />
+                  <div className="flex-1 hidden sm:block"></div>
+                </div>
               </div>
             </div>
             <div>
@@ -372,7 +386,7 @@ const App: React.FC = () => {
                 <span className="bg-indigo-500 text-white text-sm font-semibold rounded-md px-3 py-1">{players}</span>
               </div>
             </div>
-             <button onClick={handleReset} className="w-full bg-gray-600 hover:bg-gray-500 text-white font-bold py-3 px-4 rounded-lg shadow-lg transition-transform transform hover:scale-105">Reset</button>
+            <button onClick={handleReset} className="w-full bg-gray-600 hover:bg-gray-500 text-white font-bold py-3 px-4 rounded-lg shadow-lg transition-transform transform hover:scale-105">Reset</button>
           </div>
           <div className="bg-gray-800 p-6 rounded-xl shadow-2xl flex flex-col justify-start items-center">
             <CardVisualization handRanks={handRanks} isUnsuited={isUnsuited} />
@@ -386,18 +400,18 @@ const App: React.FC = () => {
                   <p className={`text-3xl font-bold py-3 px-6 rounded-lg inline-block text-white shadow-lg ${result.recommendationColor}`}>{result.recommendation}</p>
                 </div>
                 <div className="flex justify-around items-center pt-4">
-                    <div className="text-center">
-                        <p className="text-lg text-green-400">Win</p>
-                        <p className="text-5xl font-bold text-gray-100">{result.win}%</p>
-                    </div>
-                    <div className="text-center">
-                        <p className="text-lg text-gray-400">Tie</p>
-                        <p className="text-5xl font-bold text-gray-100">{result.tie}%</p>
-                    </div>
+                  <div className="text-center">
+                    <p className="text-lg text-green-400">Win</p>
+                    <p className="text-5xl font-bold text-gray-100">{result.win}%</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-lg text-gray-400">Tie</p>
+                    <p className="text-5xl font-bold text-gray-100">{result.tie}%</p>
+                  </div>
                 </div>
                 <div className="pt-4">
-                    <p className="text-indigo-300 font-semibold">Reasoning:</p>
-                    <p className="text-gray-300 italic">{result.explanation}</p>
+                  <p className="text-indigo-300 font-semibold">Reasoning:</p>
+                  <p className="text-gray-300 italic">{result.explanation}</p>
                 </div>
               </div>
             ) : (
